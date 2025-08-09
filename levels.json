@@ -1,0 +1,34 @@
+[
+  {
+    "name": "Warmup",
+    "moves": [
+      "HANDS_UP",
+      "CLAP",
+      "WAVE_RIGHT"
+    ]
+  },
+  {
+    "name": "Body",
+    "moves": [
+      "NOD",
+      "SHAKE_HEAD",
+      "JUMP"
+    ]
+  },
+  {
+    "name": "Hands",
+    "moves": [
+      "FINGERS_L_2",
+      "FINGERS_R_5",
+      "FINGERS_BOTH_3",
+      "WAVE_LEFT"
+    ]
+  },
+  {
+    "name": "Combo",
+    "moves": [
+      "COMBO[HANDS_UP+CLAP+JUMP;T=7]",
+      "COMBO[FINGERS_BOTH_3+WAVE_LEFT;T=8]"
+    ]
+  }
+]

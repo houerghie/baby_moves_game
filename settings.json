@@ -1,0 +1,31 @@
+{
+  "camera": {
+    "width": 640,
+    "height": 480
+  },
+  "screen": {
+    "width": 1000,
+    "height": 700,
+    "fps_cap": 30
+  },
+  "debug": {
+    "draw": true
+  },
+  "gestures": {
+    "clap_dist": 0.17500000000000002,
+    "peekaboo_eye_dist": 0.03,
+    "hands_up_margin": 0.03,
+    "wave_vel": 0.065,
+    "wave_window": 4,
+    "detection_hold": 0.25
+  },
+  "jump": {
+    "hip_window": 10,
+    "jump_delta": 0.07
+  },
+  "head": {
+    "head_window": 10,
+    "nod_amp": 0.06,
+    "shake_amp": 0.06
+  }
+}
