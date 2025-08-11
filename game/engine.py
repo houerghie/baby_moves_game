@@ -13,7 +13,8 @@ mpStyles = mp.solutions.drawing_styles
 
 POOL_MOVES = [
     "HANDS_UP","CLAP","WAVE_RIGHT","WAVE_LEFT","JUMP","NOD","SHAKE_HEAD",
-    "FINGERS_L_2","FINGERS_R_5","FINGERS_BOTH_3"
+    "FINGERS_L_2","FINGERS_R_5","FINGERS_BOTH_3",
+    "SAY_MAMA","SAY_DADA"
 ]
 
 def load_levels(path: str):
