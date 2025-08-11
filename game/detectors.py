@@ -2,6 +2,12 @@ import mediapipe as mp
 from math import acos, degrees
 from .utils import DetectorResult, normDist, getLmk, faceShoulderScales, GestureState
 
+# Optional speech recognition for sound-based levels
+try:
+    import speech_recognition as sr
+except Exception:  # library or microphone may be unavailable
+    sr = None
+
 mpHolistic = mp.solutions.holistic
 
 # ---------------- Finger counting ----------------
@@ -65,6 +71,9 @@ def friendlyLabel(move: str) -> str:
         inner = move[6:-1].split(";")[0]
         parts = [p.strip() for p in inner.split("+")]
         return "Combo: " + " → ".join(parts)
+    if move.startswith("SAY_"):
+        word = move.split("_", 1)[1].lower()
+        return f'Say "{word}" 🗣️'
     return FRIENDLY.get(move, move)
 
 # Back-compat alias for engine that calls friendly_label
@@ -210,6 +219,28 @@ def fingersBoth(expectedCount: int):
         return DetectorResult(False, f"Hands show L:{leftCount} R:{rightCount}, need {expectedCount}+{expectedCount}")
     return _fn
 
+def sayWord(expected: str):
+    """Return a detector that succeeds when the expected word is spoken."""
+    expected = expected.lower()
+
+    def _fn(poseLandmarks, gestureState: GestureState, now: float, settings, **_):
+        if sr is None:
+            return DetectorResult(False, "Speech recognition unavailable")
+        recognizer = sr.Recognizer()
+        try:
+            with sr.Microphone() as source:
+                recognizer.adjust_for_ambient_noise(source, duration=0.1)
+                audio = recognizer.listen(source, phrase_time_limit=2)
+            said = recognizer.recognize_google(audio).lower()
+        except Exception:
+            said = ""
+        ok = expected in said.split()
+        if ok:
+            return DetectorResult(True)
+        return DetectorResult(False, f"Say '{expected}'")
+
+    return _fn
+
 # ---------------- Registry ----------------
 
 def resolve_detector(move: str):
@@ -227,5 +258,8 @@ def resolve_detector(move: str):
         n = int(move.split("_")[-1]); return fingersRight(n), {"needs_hands": True}
     if move.startswith("FINGERS_BOTH_"):
         n = int(move.split("_")[-1]); return fingersBoth(n), {"needs_hands": True}
+    if move.startswith("SAY_"):
+        word = move.split("_", 1)[1]
+        return sayWord(word), {"needs_hands": False}
 
     return (lambda *a, **k: DetectorResult(False, "Unknown move")), {"needs_hands": False}

@@ -30,5 +30,13 @@
       "COMBO[HANDS_UP+CLAP+JUMP;T=7]",
       "COMBO[FINGERS_BOTH_3+WAVE_LEFT;T=8]"
     ]
+  },
+  {
+    "name": "Speak",
+    "moves": [
+      "SAY_MAMA",
+      "SAY_DADA",
+      "SAY_BALL"
+    ]
   }
 ]
