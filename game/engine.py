@@ -6,6 +6,7 @@ from .ui import draw_text, end_screen
 from . import detectors as D
 from .combos import make_combo_detector
 from .scoreboard import save_score, ask_name
+from .speech import speak_instruction, speak_feedback
 
 mpHolistic = mp.solutions.holistic
 mpDrawing = mp.solutions.drawing_utils
@@ -65,6 +66,7 @@ def run_levels(settings: Settings, levels_path: str, pipeline):
     gs = GestureState(settings.wave_window, settings.hip_window, settings.head_window)
     level_idx, move_idx, score = 0, 0, 0
     feedback, feedback_t = "", 0.0
+    last_spoken_move = None  # Track what instruction was last spoken
     running = True
 
     while running:
@@ -86,6 +88,11 @@ def run_levels(settings: Settings, levels_path: str, pipeline):
         current_level = levels[level_idx]
         target = current_level["moves"][move_idx] if move_idx < len(current_level["moves"]) else None
 
+        # Speak instruction for new moves
+        if target and target != last_spoken_move:
+            speak_instruction(target, D.friendly_label(target))
+            last_spoken_move = target
+
         if target and pose:
             det, meta = resolve_any(target)
             result = det(pose, gs, now, settings, left_hand=lh, right_hand=rh)                      if (meta.get("needs_hands") or meta.get("is_combo")) else det(pose, gs, now, settings)
@@ -93,19 +100,23 @@ def run_levels(settings: Settings, levels_path: str, pipeline):
             if result.ok:
                 score += 1
                 feedback, feedback_t = f"Great! {D.friendly_label(target)}", now
+                speak_feedback("Great job! Well done!")
                 gs.reset_hold(); gs.reset_combo(); move_idx += 1
             else:
                 feedback, feedback_t = (result.reason or f"Try: {D.friendly_label(target)}"), now
 
         if move_idx >= len(current_level["moves"]):
             level_idx += 1; move_idx = 0; gs.reset_combo()
+            last_spoken_move = None  # Reset for new level
             if level_idx >= len(levels):
+                speak_feedback("Amazing! You completed all levels!")
                 end_screen(screen, score, settings.scr_w, settings.scr_h)
                 name = ask_name(screen, settings)
                 if name: save_score(name, score, "LEVELS")
                 break
             else:
                 feedback, feedback_t = f"Level up! → {levels[level_idx]['name']}", now
+                speak_feedback(f"Level up! Now let's try {levels[level_idx]['name']} moves!")
 
         # ---- UI ----
         screen.fill((15,20,30))
@@ -139,6 +150,10 @@ def run_endless(settings: Settings, duration_secs: int = 60, pipeline=None):
     target = random.choice(POOL_MOVES)
     feedback, feedback_t = "Get ready!", time.time()
     end_time = time.time() + duration_secs
+    last_spoken_move = None  # Track what instruction was last spoken
+    
+    # Welcome message for endless mode
+    speak_feedback("Let's play endless mode! Get ready!")
 
     running = True
     while running:
@@ -158,6 +173,11 @@ def run_endless(settings: Settings, duration_secs: int = 60, pipeline=None):
         if results is None:
             continue
 
+        # Speak instruction for new moves
+        if target and target != last_spoken_move:
+            speak_instruction(target, D.friendly_label(target))
+            last_spoken_move = target
+
         if target and pose:
             det, meta = resolve_any(target)
             result = det(pose, gs, now, settings, left_hand=lh, right_hand=rh)                      if (meta.get("needs_hands") or meta.get("is_combo")) else det(pose, gs, now, settings)
@@ -165,6 +185,8 @@ def run_endless(settings: Settings, duration_secs: int = 60, pipeline=None):
                 score += 1
                 target = random.choice(POOL_MOVES)
                 feedback, feedback_t = f"Nice! +1 → {D.friendly_label(target)}", now
+                speak_feedback("Nice! Keep going!")
+                last_spoken_move = None  # Reset so new target gets spoken
                 gs.reset_hold(); gs.reset_combo()
             else:
                 feedback, feedback_t = (result.reason or f"Do: {D.friendly_label(target)}"), now
