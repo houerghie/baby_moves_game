@@ -2,3 +2,5 @@ mediapipe==0.10.14
 opencv-python
 pygame
 pyttsx3
+SpeechRecognition
+pyaudio
