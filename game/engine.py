@@ -6,7 +6,7 @@ from .ui import draw_text, end_screen
 from . import detectors as D
 from .combos import make_combo_detector
 from .scoreboard import save_score, ask_name
-from .speech import speak_instruction, speak_feedback
+from .speech import speak_instruction, speak_feedback, is_speaking, stop_all_speech
 
 mpHolistic = mp.solutions.holistic
 mpDrawing = mp.solutions.drawing_utils
@@ -67,6 +67,12 @@ def run_levels(settings: Settings, levels_path: str, pipeline):
     level_idx, move_idx, score = 0, 0, 0
     feedback, feedback_t = "", 0.0
     last_spoken_move = None  # Track what instruction was last spoken
+    
+    # State management for transitions
+    game_state = "playing"  # "playing", "move_completed", "level_transition"
+    transition_start_time = 0.0
+    move_completed_time = 0.0
+    
     running = True
 
     while running:
@@ -85,57 +91,116 @@ def run_levels(settings: Settings, levels_path: str, pipeline):
         if results is None:
             continue  # keep trying
 
-        current_level = levels[level_idx]
-        target = current_level["moves"][move_idx] if move_idx < len(current_level["moves"]) else None
+        # Handle different game states
+        if game_state == "playing":
+            current_level = levels[level_idx]
+            target = current_level["moves"][move_idx] if move_idx < len(current_level["moves"]) else None
 
-        # Speak instruction for new moves
-        if target and target != last_spoken_move:
-            speak_instruction(target, D.friendly_label(target))
-            last_spoken_move = target
+            # Speak instruction for new moves
+            if target and target != last_spoken_move:
+                speak_instruction(target, D.friendly_label(target))
+                last_spoken_move = target
 
-        if target and pose:
-            det, meta = resolve_any(target)
-            result = det(pose, gs, now, settings, left_hand=lh, right_hand=rh)                      if (meta.get("needs_hands") or meta.get("is_combo")) else det(pose, gs, now, settings)
+            if target and pose:
+                det, meta = resolve_any(target)
+                result = det(pose, gs, now, settings, left_hand=lh, right_hand=rh)                          if (meta.get("needs_hands") or meta.get("is_combo")) else det(pose, gs, now, settings)
 
-            if result.ok:
-                score += 1
-                feedback, feedback_t = f"Great! {D.friendly_label(target)}", now
-                speak_feedback("Great job! Well done!")
-                gs.reset_hold(); gs.reset_combo(); move_idx += 1
-            else:
-                feedback, feedback_t = (result.reason or f"Try: {D.friendly_label(target)}"), now
+                if result.ok:
+                    score += 1
+                    feedback, feedback_t = f"Great! {D.friendly_label(target)}", now
+                    speak_feedback("Great job! Well done!")
+                    gs.reset_hold(); gs.reset_combo(); move_idx += 1
+                    
+                    # Enter move completed state for brief pause
+                    game_state = "move_completed"
+                    move_completed_time = now
+                else:
+                    feedback, feedback_t = (result.reason or f"Try: {D.friendly_label(target)}"), now
 
-        if move_idx >= len(current_level["moves"]):
-            level_idx += 1; move_idx = 0; gs.reset_combo()
-            last_spoken_move = None  # Reset for new level
-            if level_idx >= len(levels):
-                speak_feedback("Amazing! You completed all levels!")
-                end_screen(screen, score, settings.scr_w, settings.scr_h)
-                name = ask_name(screen, settings)
-                if name: save_score(name, score, "LEVELS")
-                break
-            else:
-                feedback, feedback_t = f"Level up! → {levels[level_idx]['name']}", now
-                speak_feedback(f"Level up! Now let's try {levels[level_idx]['name']} moves!")
+        elif game_state == "move_completed":
+            # Wait for "Great job!" speech to complete + minimum 1 second
+            min_pause_done = now - move_completed_time > 1.0
+            if min_pause_done and not is_speaking():
+                # Check if level is complete
+                if move_idx >= len(levels[level_idx]["moves"]):
+                    level_idx += 1; move_idx = 0; gs.reset_combo()
+                    last_spoken_move = None  # Reset for new level
+                    
+                    if level_idx >= len(levels):
+                        speak_feedback("Amazing! You completed all levels!")
+                        end_screen(screen, score, settings.scr_w, settings.scr_h)
+                        name = ask_name(screen, settings)
+                        if name: save_score(name, score, "LEVELS")
+                        break
+                    else:
+                        # Enter level transition state
+                        game_state = "level_transition"
+                        transition_start_time = now
+                        speak_feedback(f"Level up! Now let's try {levels[level_idx]['name']} moves!")
+                else:
+                    # Continue to next move
+                    game_state = "playing"
+                    
+        elif game_state == "level_transition":
+            # Wait for level transition speech to complete + minimum 2 seconds
+            min_pause_done = now - transition_start_time > 2.0
+            if min_pause_done and not is_speaking():
+                game_state = "playing"
 
         # ---- UI ----
         screen.fill((15,20,30))
-        draw_text(screen, f"Level: {levels[level_idx]['name']}", 16, settings.scr_w, size=32)
-        draw_text(screen, f"Score: {score}", 60, settings.scr_w, size=28)
-        draw_text(screen, "SPACE = skip • ESC = quit", settings.scr_h - 44, settings.scr_w, size=22, color=(200,200,200))
+        
+        if game_state == "level_transition":
+            # Level transition screen
+            draw_text(screen, f"Level {level_idx}: {levels[level_idx]['name']}", settings.scr_h // 2 - 60, settings.scr_w, size=48, color=(255,230,120))
+            draw_text(screen, "Get ready!", settings.scr_h // 2, settings.scr_w, size=36, color=(140,220,255))
+            draw_text(screen, f"Score: {score}", settings.scr_h // 2 + 40, settings.scr_w, size=28)
+            
+            # Show status
+            if is_speaking():
+                draw_text(screen, "🔊 Speaking...", settings.scr_h // 2 + 80, settings.scr_w, size=24, color=(255,200,100))
+            else:
+                elapsed = now - transition_start_time
+                if elapsed > 2.0:
+                    draw_text(screen, "Ready! Starting soon...", settings.scr_h // 2 + 80, settings.scr_w, size=24, color=(100,255,100))
+                else:
+                    remaining = max(0, int(2.0 - elapsed + 0.5))
+                    draw_text(screen, f"Get ready... {remaining + 1}", settings.scr_h // 2 + 80, settings.scr_w, size=24, color=(200,200,200))
+            
+        elif game_state == "move_completed":
+            # Show congratulations briefly
+            draw_text(screen, f"Level: {levels[level_idx]['name']}", 16, settings.scr_w, size=32)
+            draw_text(screen, f"Score: {score}", 60, settings.scr_w, size=28)
+            draw_text(screen, "SPACE = skip • ESC = quit", settings.scr_h - 44, settings.scr_w, size=22, color=(200,200,200))
+            
+            draw_text(screen, "Excellent! ⭐", settings.scr_h // 2 - 20, settings.scr_w, size=48, color=(100,255,100))
+            
+            # Show next move preview if not last move in level
+            if move_idx < len(levels[level_idx]["moves"]):
+                next_move = levels[level_idx]["moves"][move_idx]
+                draw_text(screen, "Next up:", settings.scr_h // 2 + 30, settings.scr_w, size=24)
+                draw_text(screen, D.friendly_label(next_move), settings.scr_h // 2 + 60, settings.scr_w, size=28, color=(255,230,120))
+            
+        else:  # game_state == "playing"
+            draw_text(screen, f"Level: {levels[level_idx]['name']}", 16, settings.scr_w, size=32)
+            draw_text(screen, f"Score: {score}", 60, settings.scr_w, size=28)
+            draw_text(screen, "SPACE = skip • ESC = quit", settings.scr_h - 44, settings.scr_w, size=22, color=(200,200,200))
 
-        if target:
-            draw_text(screen, "Do this:", 110, settings.scr_w, size=28)
-            draw_text(screen, D.friendly_label(target), 150, settings.scr_w, size=44, color=(255,230,120))
-        if feedback and (time.time()-feedback_t) < 1.3:
-            draw_text(screen, feedback, 210, settings.scr_w, size=26, color=(140,220,255))
+            current_level = levels[level_idx]
+            target = current_level["moves"][move_idx] if move_idx < len(current_level["moves"]) else None
+            
+            if target:
+                draw_text(screen, "Do this:", 110, settings.scr_w, size=28)
+                draw_text(screen, D.friendly_label(target), 150, settings.scr_w, size=44, color=(255,230,120))
+            if feedback and (time.time()-feedback_t) < 1.3:
+                draw_text(screen, feedback, 210, settings.scr_w, size=26, color=(140,220,255))
 
-        # Draw skeleton only (top-right)
-        skel = _skeleton_surface(results, width=220, height=160)
-        skel = cv2.cvtColor(skel, cv2.COLOR_BGR2RGB)
-        surf = pygame.surfarray.make_surface(skel.swapaxes(0,1))
-        margin = 16
-        screen.blit(surf, (settings.scr_w - surf.get_width() - margin, margin))
+            # Draw skeleton only (top-right) - only during playing
+            skel = _skeleton_surface(results, width=220, height=160)
+            skel = cv2.cvtColor(skel, cv2.COLOR_BGR2RGB)
+            surf = pygame.surfarray.make_surface(skel.swapaxes(0,1))
+            margin = 16
+            screen.blit(surf, (settings.scr_w - surf.get_width() - margin, margin))
 
         pygame.display.flip()
         clock.tick(settings.fps_cap)
@@ -152,8 +217,7 @@ def run_endless(settings: Settings, duration_secs: int = 60, pipeline=None):
     end_time = time.time() + duration_secs
     last_spoken_move = None  # Track what instruction was last spoken
     
-    # Welcome message for endless mode
-    speak_feedback("Let's play endless mode! Get ready!")
+    # No welcome message - just start playing
 
     running = True
     while running:
@@ -184,8 +248,10 @@ def run_endless(settings: Settings, duration_secs: int = 60, pipeline=None):
             if result.ok:
                 score += 1
                 target = random.choice(POOL_MOVES)
-                feedback, feedback_t = f"Nice! +1 → {D.friendly_label(target)}", now
-                speak_feedback("Nice! Keep going!")
+                feedback, feedback_t = f"+1 → {D.friendly_label(target)}", now
+                
+                # Stop any current speech and start new instruction immediately
+                stop_all_speech()
                 last_spoken_move = None  # Reset so new target gets spoken
                 gs.reset_hold(); gs.reset_combo()
             else:
